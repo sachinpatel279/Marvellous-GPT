@@ -8,3 +8,5 @@ diffusers
 transformers
 accelerate
 safetensors
+google-genai>=1.0.0
+
