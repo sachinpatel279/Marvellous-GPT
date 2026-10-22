@@ -7,15 +7,16 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
-from ollama import chat, list as ollama_list
+from google import genai
+from google.genai import types
 
 # Optional packages used only by the relevant features:
 # pip install diffusers transformers accelerate safetensors torch
 # pip install pypdf pandas pillow
 
 APP_TITLE = "MARVELLOUS AI"
-TEXT_MODEL_DEFAULT = "llama3.1:8b"
-VISION_MODEL_DEFAULT = "llava:7b"  # Install locally with: ollama pull llava:7b
+TEXT_MODEL_DEFAULT = "gemini-2.5-flash"
+VISION_MODEL_DEFAULT = "gemini-2.5-flash"
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "chat_history.db"
 AVATAR_PATH = BASE_DIR / "assistant.jpg"
@@ -24,6 +25,23 @@ OUTPUT_DIR = BASE_DIR / "generated_files"
 IMAGE_DIR = OUTPUT_DIR / "images"
 OUTPUT_DIR.mkdir(exist_ok=True)
 IMAGE_DIR.mkdir(exist_ok=True)
+
+def get_gemini_client():
+    api_key = st.secrets.get("GEMINI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is missing in Streamlit Cloud → Settings → Secrets.")
+    return genai.Client(api_key=api_key)
+
+def gemini_generate(model, contents, system_instruction=None):
+    client = get_gemini_client()
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        temperature=0.7,
+        max_output_tokens=1200,
+    )
+    response = client.models.generate_content(model=model, contents=contents, config=config)
+    return (response.text or "").strip()
+
 
 st.set_page_config(page_title=APP_TITLE, page_icon="🤖", layout="wide", initial_sidebar_state="expanded")
 
@@ -109,21 +127,7 @@ def avatar_path():
 
 
 def get_installed_models():
-    try:
-        result = ollama_list()
-        models = result.get("models", []) if isinstance(result, dict) else getattr(result, "models", [])
-        names = []
-        for model in models:
-            if isinstance(model, dict):
-                name = model.get("name") or model.get("model")
-            else:
-                name = getattr(model, "model", None) or getattr(model, "name", None)
-            if name:
-                names.append(name)
-        return names
-    except Exception:
-        return []
-
+    return ["gemini-2.5-flash"]
 
 def read_uploaded_file(uploaded_file):
     """Extract readable text from supported uploaded documents."""
@@ -211,7 +215,7 @@ for key, default in {
 with st.sidebar:
     if LOGO_PATH.exists():
         st.image(str(LOGO_PATH), width=86)
-    st.markdown("""<div style="padding:4px 4px 16px"><div style="font-size:11px;letter-spacing:3px;color:#55e7ff;font-weight:800">M / AI LABS</div><div style="font-size:23px;font-weight:800;margin-top:5px">Marvellous <span style="color:#55e7ff">AI</span></div><div style="font-size:11px;color:#8493b6;margin-top:5px">LOCAL INTELLIGENCE SYSTEM</div></div>""", unsafe_allow_html=True)
+    st.markdown("""<div style="padding:4px 4px 16px"><div style="font-size:11px;letter-spacing:3px;color:#55e7ff;font-weight:800">M / AI LABS</div><div style="font-size:23px;font-weight:800;margin-top:5px">Marvellous <span style="color:#55e7ff">AI</span></div><div style="font-size:11px;color:#8493b6;margin-top:5px">AI WORKSPACE</div></div>""", unsafe_allow_html=True)
 
     if st.button("＋  New Chat", use_container_width=True):
         st.session_state.cid = new_conversation()
@@ -251,8 +255,8 @@ with st.sidebar:
                     st.rerun()
 
     st.divider()
-    text_model = st.text_input("Text model", value=TEXT_MODEL_DEFAULT, help="Use a model name shown by `ollama list`.")
-    vision_model = st.text_input("Vision model", value=VISION_MODEL_DEFAULT, help="For image understanding. Install with: ollama pull llava:7b")
+    text_model = st.text_input("Text model", value=TEXT_MODEL_DEFAULT, help="Gemini API model name.")
+    vision_model = st.text_input("Vision model", value=VISION_MODEL_DEFAULT, help="Gemini model for image understanding.")
     if st.button("Clear ALL history", use_container_width=True):
         st.session_state.clear_confirm = True
     if st.session_state.clear_confirm:
@@ -269,12 +273,12 @@ with st.sidebar:
             if st.button("Cancel", key="clear_no"):
                 st.session_state.clear_confirm = False
                 st.rerun()
-    st.caption("Chat history is saved locally in chat_history.db.")
+    st.caption("Chat history uses the app runtime filesystem and may reset after cloud restarts.")
 
 # ----------------------------- MAIN HEADER -----------------------------
-st.markdown("""<div class="hero"><div class="eyebrow">✦ YOUR PERSONAL AI WORKSPACE</div><h1>आम्ही Technical संस्कार करतो  !!!</h1><p>Marvellous AI — your Python tutor, coding partner, file reader and local image studio.</p><span class="pill">● LOCAL AI</span> &nbsp; <span class="pill">CHAT MEMORY</span> &nbsp; <span class="pill">IMAGE + FILE TOOLS</span></div>""", unsafe_allow_html=True)
+st.markdown("""<div class="hero"><div class="eyebrow">✦ YOUR PERSONAL AI WORKSPACE</div><h1>आम्ही Technical संस्कार करतो  !!!</h1><p>Marvellous AI — your Python tutor, coding partner, file reader and creative assistant.</p><span class="pill">● LOCAL AI</span> &nbsp; <span class="pill">CHAT MEMORY</span> &nbsp; <span class="pill">IMAGE + FILE TOOLS</span></div>""", unsafe_allow_html=True)
 
-chat_tab, upload_tab, image_tab, file_tab = st.tabs(["💬 Chat", "📎 Upload & Analyze", "🎨 Generate Image", "🧾 Generate File"])
+chat_tab, upload_tab, image_tab, file_tab, about_tab = st.tabs(["💬 Chat", "📎 Upload & Analyze", "🎨 Generate Image", "🧾 Generate File", "ℹ️ About Us"])
 
 # ----------------------------- CHAT TAB -----------------------------
 with chat_tab:
@@ -323,21 +327,43 @@ with chat_tab:
             st.markdown(prompt)
         with st.chat_message("assistant", avatar=avatar_path()):
             status = st.empty()
-            status.info(f"Connecting to Ollama model `{text_model}`…")
+            status.info(f"Connecting to Gemini model `{text_model}`…")
             try:
                 history = get_messages(cid)
-                messages = [{"role": "system", "content": "You are Marvellous AI, a helpful Python programming teacher and general assistant. Answer directly, explain code with examples, and reply in Hindi/Hinglish when the user does. Use Markdown."}]
-                messages.extend({"role": m["role"], "content": m["content"]} for m in history)
-                status.info("Model is generating your answer. The first response may take a little longer…")
-                response = chat(model=text_model.strip(), messages=messages)
-                answer = (response.message.content or "").strip() or "Ollama returned an empty response. Please try again."
+                system_instruction = (
+                    "You are Marvellous AI, a helpful programming teacher and general assistant. "
+                    "Reply in the same language as the user; if the user writes Hindi/Hinglish, reply naturally in Hindi/Hinglish. "
+                    "Start with a direct, concise answer, usually 3-6 sentences, and expand only when asked. Use Markdown."
+                )
+                contents = []
+                for m in history:
+                    contents.append({"role": "user" if m["role"] == "user" else "model",
+                                     "parts": [{"text": m["content"]}]})
+                status.info("Gemini is generating your answer…")
+                answer_box = st.empty()
+                answer_parts = []
+                client = get_gemini_client()
+                stream = client.models.generate_content_stream(
+                    model=text_model.strip(),
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=0.7,
+                        max_output_tokens=1200,
+                    ),
+                )
+                for chunk in stream:
+                    if getattr(chunk, "text", None):
+                        answer_parts.append(chunk.text)
+                        answer_box.markdown("".join(answer_parts) + " ▌")
+                answer = "".join(answer_parts).strip() or "Gemini returned an empty response. Please try again."
                 save_message(cid, "assistant", answer)
                 status.empty()
-                st.markdown(answer)
+                answer_box.markdown(answer)
                 with st.expander("Copy answer"):
                     st.code(answer, language=None)
             except Exception as exc:
-                answer = (f"I couldn't get an answer from Ollama. Check that Ollama is running and `{text_model}` is installed.\n\nRun `ollama list`; if missing, run `ollama pull {text_model}`.\n\nTechnical error: `{type(exc).__name__}: {exc}`")
+                answer = (f"I could not get an answer from Gemini. Check GEMINI_API_KEY in Streamlit Secrets and confirm the model `{text_model}` is available.\n\nTechnical error: `{type(exc).__name__}: {exc}`")
                 save_message(cid, "assistant", answer)
                 status.empty()
                 st.error(answer)
@@ -346,7 +372,7 @@ with chat_tab:
 # ----------------------------- UPLOAD & ANALYZE TAB -----------------------------
 with upload_tab:
     st.markdown("### Upload an image or document")
-    st.caption("Images are analyzed with your local Ollama vision model. Documents are read locally and sent as text to your selected Ollama model.")
+    st.caption("Images and documents are analyzed using the hosted Gemini API.")
     uploads = st.file_uploader(
         "Choose images or documents", type=["png", "jpg", "jpeg", "webp", "pdf", "txt", "md", "csv", "py", "java", "js", "ts", "html", "css", "json", "xml", "yml", "yaml", "sql", "log", "sh", "bat"],
         accept_multiple_files=True, key="analysis_uploads"
@@ -375,25 +401,27 @@ with upload_tab:
                         full_prompt += "\n\nDocument contents:\n" + "\n".join(context_parts)
                     if image_files:
                         vision_name = vision_model.strip()
-                        response = chat(model=vision_name, messages=[{
-                            "role": "user",
-                            "content": full_prompt + ("\n\nAlso consider these document contents:" if context_parts else ""),
-                            "images": [image_files[0].getvalue()],
-                        }])
-                        result_text = response.message.content
+                        image_file = image_files[0]
+                        mime_type = image_file.type or "image/jpeg"
+                        image_part = types.Part.from_bytes(data=image_file.getvalue(), mime_type=mime_type)
+                        result_text = gemini_generate(
+                            vision_name,
+                            [full_prompt + ("\n\nAlso consider these document contents:" if context_parts else ""), image_part],
+                            "Analyze the provided image carefully. Reply in the user's language and keep the answer useful and concise."
+                        )
                     else:
-                        response = chat(model=text_model.strip(), messages=[
-                            {"role": "system", "content": "You are a careful assistant that analyzes user-provided files. Be accurate and explain clearly."},
-                            {"role": "user", "content": full_prompt},
-                        ])
-                        result_text = response.message.content
+                        result_text = gemini_generate(
+                            text_model.strip(),
+                            full_prompt,
+                            "You carefully analyze user-provided files. Be accurate, concise, and reply in the user's language."
+                        )
                 st.markdown("#### Analysis result")
                 st.markdown(result_text or "The model returned an empty response.")
                 st.download_button("Download analysis as TXT", data=(result_text or ""), file_name="marvellous_analysis.txt", mime="text/plain")
             except Exception as exc:
                 st.error(f"Could not analyze the upload: {type(exc).__name__}: {exc}")
                 if image_files:
-                    st.info(f"Image analysis requires a local vision model. In Command Prompt run: `ollama pull {vision_model.strip()}`. Then keep the Vision model field set to that model.")
+                    st.info(f"Image analysis uses Gemini API. Check GEMINI_API_KEY in Streamlit Secrets and verify the selected Gemini model name.")
                 if any(Path(f.name).suffix.lower() == ".pdf" for f in doc_files):
                     st.info("For PDFs, install pypdf: `py -3.12 -m pip install pypdf`")
 
@@ -459,7 +487,7 @@ with image_tab:
 # ----------------------------- FILE GENERATION TAB -----------------------------
 with file_tab:
     st.markdown("### Generate a file from your prompt")
-    st.caption("Ask the local text model to create content, then save it as a downloadable file. Review generated code before running it.")
+    st.caption("Ask Gemini to create content, then save it as a downloadable file. Review generated code before running it.")
     file_prompt = st.text_area("What file should the AI create?", placeholder="Create a beginner-friendly Python calculator with comments", height=110, key="file_prompt")
     file_type = st.selectbox("Output format", ["Python (.py)", "Text (.txt)", "Markdown (.md)", "CSV (.csv)", "JSON (.json)", "HTML (.html)", "SQL (.sql)"])
     default_names = {"Python (.py)": "generated_code.py", "Text (.txt)": "generated_text.txt", "Markdown (.md)": "generated_notes.md", "CSV (.csv)": "generated_data.csv", "JSON (.json)": "generated_data.json", "HTML (.html)": "generated_page.html", "SQL (.sql)": "generated_query.sql"}
@@ -483,12 +511,12 @@ with file_tab:
                 ".sql": "Return SQL only, with brief SQL comments if useful. Do not use Markdown fences.",
             }[expected_ext]
             try:
-                with st.spinner(f"Asking {text_model.strip()} to create your file…"):
-                    response = chat(model=text_model.strip(), messages=[
-                        {"role": "system", "content": "You generate useful, accurate file contents based on user requests. Follow the requested format exactly."},
-                        {"role": "user", "content": f"Create the requested file. {format_instruction}\n\nRequest: {file_prompt.strip()}"},
-                    ])
-                content = (response.message.content or "").strip()
+                with st.spinner(f"Asking Gemini ({text_model.strip()}) to create your file…"):
+                    content = gemini_generate(
+                        text_model.strip(),
+                        f"Create the requested file. {format_instruction}\n\nRequest: {file_prompt.strip()}",
+                        "Generate useful, accurate file contents. Follow the requested format exactly."
+                    )
                 # Remove a surrounding Markdown fence if a model adds one anyway.
                 if content.startswith("```"):
                     lines = content.splitlines()
@@ -504,10 +532,48 @@ with file_tab:
                 st.download_button("⬇ Download generated file", data=out_path.read_bytes(), file_name=out_path.name, mime="text/plain")
             except Exception as exc:
                 st.error(f"File generation failed: {type(exc).__name__}: {exc}")
-                st.info(f"Check that Ollama is running and `{text_model.strip()}` is installed. Run `ollama list` to verify.")
+                st.info(f"Check GEMINI_API_KEY in Streamlit Secrets, your API quota, internet access, and the selected Gemini model name.")
     if st.session_state.last_generated_file and Path(st.session_state.last_generated_file).exists():
         last_file = Path(st.session_state.last_generated_file)
         st.caption(f"Last generated file: {last_file.name}")
         st.download_button("Download last generated file", data=last_file.read_bytes(), file_name=last_file.name, mime="application/octet-stream", key="download_last_file")
 
-st.markdown("<div style='text-align:center;color:#667596;font-size:11px;padding:22px 0 8px'>MARVELLOUS AI · STREAMLIT + OLLAMA + LOCAL DIFFUSERS<br><br>AI can make mistakes. Review generated content and code before using it.</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center;color:#667596;font-size:11px;padding:22px 0 8px'>MARVELLOUS AI · STREAMLIT + GEMINI API + LOCAL DIFFUSERS<br><br>AI can make mistakes. Review generated content and code before using it.</div>", unsafe_allow_html=True)
+
+# ----------------------------- ABOUT US TAB -----------------------------
+with about_tab:
+    st.markdown("""
+    <div class="hero">
+      <div class="eyebrow">✦ ABOUT THIS PROJECT</div>
+      <h1>About <span style="color:#55e7ff">Marvellous AI</span></h1>
+      <p>A personal AI workspace for learning, coding, and creating.</p>
+      <span class="pill">GEMINI API</span> &nbsp; <span class="pill">PYTHON + STREAMLIT</span>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("### 👨‍💻 Created by Sachin Patel")
+    st.write(
+        "Marvellous AI is a personal AI assistant project created by Sachin Patel. "
+        "It combines AI chat, programming assistance, supported document and image analysis, "
+        "and file-generation tools in one Streamlit application."
+    )
+    st.divider()
+    st.markdown("### 🏢 About Marvellous Infosystems")
+    st.write(
+        "Marvellous Infosystems is a Pune-based IT and computer training institute. "
+        "Visit its official website for current information about courses, training programs, and learning resources."
+    )
+    st.markdown("🌐 Official website: [www.marvellousinfosystems.com](https://www.marvellousinfosystems.com/)")
+    st.divider()
+    st.markdown("### ✨ App features")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**💬 AI Chat & Coding**")
+        st.caption("Ask questions and get programming help.")
+        st.markdown("**📎 Upload & Analyze**")
+        st.caption("Analyze supported documents and images with Gemini.")
+    with c2:
+        st.markdown("**🎨 Generate Image**")
+        st.caption("Generate images locally when required packages and resources are available.")
+        st.markdown("**🧾 Generate File**")
+        st.caption("Generate code and supported text-based files from prompts.")
+    st.caption("Independent project created by Sachin Patel; not an official Marvellous Infosystems product.")
