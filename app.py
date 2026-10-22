@@ -15,8 +15,8 @@ from google.genai import types
 # pip install pypdf pandas pillow
 
 APP_TITLE = "MARVELLOUS AI"
-TEXT_MODEL_DEFAULT = "gemini-2.5-flash"
-VISION_MODEL_DEFAULT = "gemini-2.5-flash"
+TEXT_MODEL_DEFAULT = "gemini-3.8-flash"
+VISION_MODEL_DEFAULT = "gemini-3.8-flash"
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "chat_history.db"
 AVATAR_PATH = BASE_DIR / "assistant.jpg"
@@ -343,25 +343,48 @@ with chat_tab:
                 answer_box = st.empty()
                 answer_parts = []
                 client = get_gemini_client()
-                stream = client.models.generate_content_stream(
-                    model=text_model.strip(),
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        temperature=0.7,
-                        max_output_tokens=1200,
+               
+                stream = client.interactions.create(
+                    model="gemini-3.8-flash",
+                    input=(
+                        f"System instructions:\n{system_instruction}\n\n"
+                        f"User message and conversation context:\n{contents}"
                     ),
+                    stream=True,
                 )
-                for chunk in stream:
-                    if getattr(chunk, "text", None):
-                        answer_parts.append(chunk.text)
-                        answer_box.markdown("".join(answer_parts) + " ▌")
-                answer = "".join(answer_parts).strip() or "Gemini returned an empty response. Please try again."
+
+                for event in stream:
+                    if event.event_type == "step.delta":
+                        delta = getattr(event, "delta", None)
+
+                        if (
+                            delta
+                            and getattr(delta, "type", None) == "text"
+                            and getattr(delta, "text", None)
+                        ):
+                            answer_parts.append(delta.text)
+                            answer_box.markdown(
+                                "".join(answer_parts) + " ▌"
+                            )
+
+                answer = (
+                    "".join(answer_parts).strip()
+                    or "Gemini returned an empty response. Please try again."
+                )
+
                 save_message(cid, "assistant", answer)
                 status.empty()
                 answer_box.markdown(answer)
+
                 with st.expander("Copy answer"):
                     st.code(answer, language=None)
+
+            except Exception as exc:
+                answer = (f"I could not get an answer from Gemini. Check GEMINI_API_KEY in Streamlit Secrets and confirm the model `{text_model}` is available.\n\nTechnical error: `{type(exc).__name__}: {exc}`")
+                save_message(cid, "assistant", answer)
+                status.empty()
+                st.error(answer)
+        st.rerun()
             except Exception as exc:
                 answer = (f"I could not get an answer from Gemini. Check GEMINI_API_KEY in Streamlit Secrets and confirm the model `{text_model}` is available.\n\nTechnical error: `{type(exc).__name__}: {exc}`")
                 save_message(cid, "assistant", answer)
