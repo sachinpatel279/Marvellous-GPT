@@ -328,7 +328,7 @@ with chat_tab:
         with st.chat_message("assistant", avatar=avatar_path()):
             status = st.empty()
             status.info(f"Connecting to Gemini model `{text_model}`…")
-            try:
+        try:
                 history = get_messages(cid)
                 system_instruction = (
                     "You are Marvellous AI, a helpful programming teacher and general assistant. "
@@ -380,12 +380,6 @@ with chat_tab:
                     st.code(answer, language=None)
 
         except Exception as exc:
-                answer = (f"I could not get an answer from Gemini. Check GEMINI_API_KEY in Streamlit Secrets and confirm the model `{text_model}` is available.\n\nTechnical error: `{type(exc).__name__}: {exc}`")
-                save_message(cid, "assistant", answer)
-                status.empty()
-                st.error(answer)
-        st.rerun()
-            except Exception as exc:
                 answer = (f"I could not get an answer from Gemini. Check GEMINI_API_KEY in Streamlit Secrets and confirm the model `{text_model}` is available.\n\nTechnical error: `{type(exc).__name__}: {exc}`")
                 save_message(cid, "assistant", answer)
                 status.empty()
