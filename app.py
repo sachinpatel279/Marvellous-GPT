@@ -328,7 +328,7 @@ with chat_tab:
             st.markdown(prompt)
         with st.chat_message("assistant", avatar=avatar_path()):
             status = st.empty()
-            status.info(f"Connecting to Gemini model `{text_model}`…")
+            status.info(f"Marvellous AI is thinking`…")
         try:
             history = get_messages(cid)
             system_instruction = (
@@ -360,7 +360,7 @@ with chat_tab:
                         answer_parts = []
                         answer_box.empty()
                         status.info(
-                            f"Connecting to {model_name}..."
+                            f"Marvellous AI is thinking..."
                         )
 
                         stream = client.interactions.create(
