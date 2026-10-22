@@ -379,7 +379,7 @@ with chat_tab:
                 with st.expander("Copy answer"):
                     st.code(answer, language=None)
 
-            except Exception as exc:
+        except Exception as exc:
                 answer = (f"I could not get an answer from Gemini. Check GEMINI_API_KEY in Streamlit Secrets and confirm the model `{text_model}` is available.\n\nTechnical error: `{type(exc).__name__}: {exc}`")
                 save_message(cid, "assistant", answer)
                 status.empty()
