@@ -9,6 +9,7 @@ from pathlib import Path
 import streamlit as st
 from google import genai
 from google.genai import types
+import time
 
 # Optional packages used only by the relevant features:
 # pip install diffusers transformers accelerate safetensors torch
@@ -329,61 +330,105 @@ with chat_tab:
             status = st.empty()
             status.info(f"Connecting to Gemini model `{text_model}`…")
         try:
-                history = get_messages(cid)
-                system_instruction = (
-                    "You are Marvellous AI, a helpful programming teacher and general assistant. "
-                    "Reply in the same language as the user; if the user writes Hindi/Hinglish, reply naturally in Hindi/Hinglish. "
-                    "Start with a direct, concise answer, usually 3-6 sentences, and expand only when asked. Use Markdown."
-                )
-                contents = []
-                for m in history:
-                    contents.append({"role": "user" if m["role"] == "user" else "model",
-                                     "parts": [{"text": m["content"]}]})
-                status.info("Gemini is generating your answer…")
-                answer_box = st.empty()
-                answer_parts = []
-                client = get_gemini_client()
-               
-                stream = client.interactions.create(
-                    model="gemini-3.8-flash",
-                    input=(
-                        f"System instructions:\n{system_instruction}\n\n"
-                        f"User message and conversation context:\n{contents}"
-                    ),
-                    stream=True,
-                )
+            history = get_messages(cid)
+            system_instruction = (
+                "You are Marvellous AI, a helpful programming teacher and general assistant. "
+                "Reply in the same language as the user; if the user writes Hindi/Hinglish, reply naturally in Hindi/Hinglish. "
+                "Start with a direct, concise answer, usually 3-6 sentences, and expand only when asked. Use Markdown."
+            )
+            contents = []
+            for m in history:
+                contents.append({"role": "user" if m["role"] == "user" else "model",
+                                 "parts": [{"text": m["content"]}]})
+            status.info("Gemini is generating your answer…")
+            answer_box = st.empty()
+            answer_parts = []
+            client = get_gemini_client()
 
-                for event in stream:
-                    if event.event_type == "step.delta":
-                        delta = getattr(event, "delta", None)
+            models_to_try = [
+                "gemini-3.8-flash",
+                "gemini-3.7-flash",
+                "gemini-3.6-flash",
+            ]
 
-                        if (
-                            delta
-                            and getattr(delta, "type", None) == "text"
-                            and getattr(delta, "text", None)
-                        ):
-                            answer_parts.append(delta.text)
-                            answer_box.markdown(
-                                "".join(answer_parts) + " ▌"
+            answer = ""
+            last_error = None
+
+            for model_name in models_to_try:
+                for attempt in range(2):
+                    try:
+                        answer_parts = []
+                        answer_box.empty()
+                        status.info(
+                            f"Connecting to {model_name}..."
+                        )
+
+                        stream = client.interactions.create(
+                            model=model_name,
+                            input=(
+                                f"{system_instruction}\n\n"
+                                f"Conversation:\n{contents}"
+                            ),
+                            stream=True,
+                        )
+
+                        for event in stream:
+                            if event.event_type == "step.delta":
+                                delta = getattr(event, "delta", None)
+
+                                if (
+                                    delta
+                                    and getattr(delta, "type", None) == "text"
+                                    and getattr(delta, "text", None)
+                                ):
+                                    answer_parts.append(delta.text)
+                                    answer_box.markdown(
+                                        "".join(answer_parts) + " ▌"
+                                    )
+
+                        answer = "".join(answer_parts).strip()
+
+                        if not answer:
+                            raise RuntimeError(
+                                "Gemini returned an empty response."
                             )
 
-                answer = (
-                    "".join(answer_parts).strip()
-                    or "Gemini returned an empty response. Please try again."
+                        last_error = None
+                        break
+
+                    except Exception as exc:
+                        last_error = exc
+                        answer_parts = []
+                        answer_box.empty()
+
+                        if attempt == 0:
+                            status.warning(
+                                f"{model_name} is busy. Retrying..."
+                            )
+                            time.sleep(2)
+                        else:
+                            break
+
+                if answer:
+                    break
+
+            if not answer:
+                raise RuntimeError(
+                    "All Gemini models failed. Last error: "
+                    f"{type(last_error).__name__}: {last_error}"
                 )
 
-                save_message(cid, "assistant", answer)
-                status.empty()
-                answer_box.markdown(answer)
+            save_message(cid, "assistant", answer)
+            status.empty()
+            answer_box.markdown(answer)
 
-                with st.expander("Copy answer"):
-                    st.code(answer, language=None)
-
+            with st.expander("Copy answer"):
+                st.code(answer, language=None)
         except Exception as exc:
-                answer = (f"I could not get an answer from Gemini. Check GEMINI_API_KEY in Streamlit Secrets and confirm the model `{text_model}` is available.\n\nTechnical error: `{type(exc).__name__}: {exc}`")
-                save_message(cid, "assistant", answer)
-                status.empty()
-                st.error(answer)
+            answer = (f"I could not get an answer from Gemini. Check GEMINI_API_KEY in Streamlit Secrets and confirm the model `{text_model}` is available.\n\nTechnical error: `{type(exc).__name__}: {exc}`")
+            save_message(cid, "assistant", answer)
+            status.empty()
+            st.error(answer)
         st.rerun()
 
 # ----------------------------- UPLOAD & ANALYZE TAB -----------------------------
