@@ -1,0 +1,10 @@
+streamlit
+ollama
+pillow
+pypdf
+# Optional for local image generation (install separately if desired):
+# torch
+diffusers
+transformers
+accelerate
+safetensors
